@@ -5,7 +5,7 @@ from data_loader import CLINICS, get_competitors
 
 # 設定頁面配置
 st.set_page_config(
-    page_title="中醫診所競品分析",
+    page_title="高堂體系周邊診所評論分析",
     page_icon="🏥",
     layout="wide"
 )
@@ -22,7 +22,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 def main():
-    st.title("🏥 中醫診所競品分析系統")
+    st.title("🏥 高堂體系周邊診所評論分析")
 
     # 取得 API Key
     try:
