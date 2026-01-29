@@ -26,7 +26,7 @@ def main():
 
     # 取得 API Key
     try:
-        api_key = st.secrets["6b51a088f6d4de92d73b3523951cfdf92022b8daab2c7f75e2eb262096d5e124"]
+        api_key = st.secrets["SERPAPI_KEY"]
     except Exception:
         st.error("找不到 API Key，請確認 .streamlit/secrets.toml 設定正確。")
         return
