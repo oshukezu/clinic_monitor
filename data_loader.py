@@ -23,8 +23,7 @@ def get_competitors(lat, lng, api_key):
     使用 SerpApi 抓取指定座標周邊的中醫診所資料。
     """
     if not api_key:
-        st.error("未設定 SerpApi Key")
-        return pd.DataFrame()
+        raise ValueError("未設定 SerpApi Key")
 
     params = {
         "engine": "google_maps",
@@ -36,24 +35,26 @@ def get_competitors(lat, lng, api_key):
         "gl": "tw"
     }
 
-    try:
-        search = GoogleSearch(params)
-        results = search.get_dict()
-        local_results = results.get("local_results", [])
-        
-        data = []
-        # 提取前 5 名
-        for item in local_results[:5]:
-            data.append({
-                "店名": item.get("title"),
-                "星等": item.get("rating", 0),
-                "評論數": item.get("reviews", 0),
-                "排名": item.get("position", 0),
-                "type": "competitor" # 預設標記為競爭對手
-            })
-            
-        return pd.DataFrame(data)
+    # Remove internal try-except to prevent caching of failures
+    # print(f"DEBUG: calling SerpApi with params: {params}", flush=True)
+    search = GoogleSearch(params)
+    results = search.get_dict()
+    
+    if "error" in results:
+        raise Exception(f"SerpApi Error: {results['error']}")
 
-    except Exception as e:
-        st.error(f"API 呼叫失敗: {e}")
-        return pd.DataFrame()
+    local_results = results.get("local_results", [])
+    # print(f"DEBUG: local_results count: {len(local_results)}", flush=True)
+    
+    data = []
+    # 提取前 5 名
+    for item in local_results[:5]:
+        data.append({
+            "店名": item.get("title"),
+            "星等": item.get("rating", 0),
+            "評論數": item.get("reviews", 0),
+            "排名": item.get("position", 0),
+            "type": "competitor" # 預設標記為競爭對手
+        })
+        
+    return pd.DataFrame(data)

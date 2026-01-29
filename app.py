@@ -1,16 +1,18 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from data_loader import CLINICS, get_competitors
+from rank_tracker import check_rankings
+from clinics_config import CLINICS
+from seo_config import KEYWORDS
 
 # 設定頁面配置
 st.set_page_config(
-    page_title="高堂體系周邊診所評論分析",
+    page_title="高堂體系周邊診所評價系統",
     page_icon="🏥",
     layout="wide"
 )
 
-# CSS 優化視覺
+# CSS 優化視覺 (特別針對 Table 和 Metric)
 st.markdown("""
     <style>
     .stMetric {
@@ -18,12 +20,15 @@ st.markdown("""
         padding: 10px;
         border-radius: 5px;
     }
+    div[data-testid="stDataFrame"] {
+        width: 100%;
+    }
     </style>
     """, unsafe_allow_html=True)
 
 def main():
-    st.title("🏥 高堂體系周邊診所評論分析")
-
+    st.title("🏥 高堂體系周邊診所評價系統")
+    
     # 取得 API Key
     try:
         api_key = st.secrets["SERPAPI_KEY"]
@@ -31,84 +36,85 @@ def main():
         st.error("找不到 API Key，請確認 .streamlit/secrets.toml 設定正確。")
         return
 
-    # 側邊欄：選擇診所
-    with st.sidebar:
-        st.header("設定")
-        selected_name = st.selectbox("選擇診所", list(CLINICS.keys()))
+    st.markdown(f"""
+    此系統監控 **{len(CLINICS)}** 家診所 x **{len(KEYWORDS)}** 個關鍵字 的搜尋排名。
+    搜尋範圍：以各診所為中心，半徑約 1 公里 (Zoom 15z)。
+    """)
     
-    if selected_name:
-        clinic_info = CLINICS[selected_name]
-        st.header(f"📍 分析目標：{selected_name}")
-        
-        # 呼叫資料抓取函數
-        with st.spinner('正在抓取競品資料...'):
-            df = get_competitors(clinic_info["lat"], clinic_info["lng"], api_key)
-            
-        if not df.empty:
-            # 標記我方診所 (簡單模糊比對)
-            # 建立一個新欄位 '身份'，預設 '競爭對手'
-            # 若店名包含選擇的診所名稱 (移除 '中醫' 後的比對可能更準，但這裡先試直接包含)
-            # 使用者輸入的是 "高堂中醫"，搜尋結果可能是 "高堂中醫診所"
-            
-            # 定義判斷函式
-            def identify_clinic(row_name):
-                # 簡單正規化：移除 '診所'
-                clean_target = selected_name.replace("診所", "")
-                clean_row = row_name.replace("診所", "")
-                if clean_target in clean_row:
-                    return "我方診所"
-                return "競爭對手"
+    # Action Area
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        start_btn = st.button("🚀 開始每週排名檢測", type="primary")
+    with col2:
+        st.caption("⚠️ 注意：每次完整檢測會消耗約 55 次 API 呼叫。結果會快取 7 天，請勿擔心重複點擊。")
 
-            df["身份"] = df["店名"].apply(identify_clinic)
-            
-            # 若搜尋結果前五名都沒有自己，這是有可能的 (如果排名後段)
-            # 這裡不特別補插資料，依據需求僅顯示 "local_results 中的前 5 名"
-            
-            # --- 顯示數據摘要 ---
-            st.subheader("數據摘要")
-            col1, col2 = st.columns(2)
-            
-            # 嘗試找出我方數據顯示
-            my_data = df[df["身份"] == "我方診所"]
-            if not my_data.empty:
-                my_row = my_data.iloc[0]
-                with col1:
-                    st.metric("我方排名", f"第 {my_row['排名']} 名")
-                with col2:
-                    st.metric("我方星等", f"{my_row['星等']} ⭐ ({my_row['評論數']} 則評論)")
-            else:
-                st.warning(f"⚠️ 在前 5 名搜尋結果中未發現「{selected_name}」。")
+    # 檢查是否觸發過或已有快取資料
+    # 這裡我們直接呼叫 check_rankings，因為它有 @st.cache_data 保護
+    # 只有當使用者點擊按鈕，或者之前已經跑過有快取時，才顯示結果
+    # 但為了避免誤觸，我們還是用按鈕當作一個 explicit trigger，
+    # 不過為了讓介面友善，如果 session_state 註記過已執行，就直接顯示
+    
+    if start_btn:
+        st.session_state["has_run"] = True
+        
+    if st.session_state.get("has_run", False):
+        try:
+            with st.spinner("正在進行 SEO 排名分析，這可能需要幾分鐘..."):
+                raw_data = check_rankings(api_key)
+                df = pd.DataFrame(raw_data)
+                
+            if df.empty:
+                st.warning("查無資料，請確認 API 狀態。")
+                return
 
             st.divider()
-
-            # --- 繪製散佈圖 ---
-            st.subheader("📊 星等 vs 評論數 散佈圖")
             
-            if not df.empty:
-                fig = px.scatter(
-                    df,
-                    x="星等",
-                    y="評論數",
-                    color="身份",
-                    hover_data=["店名", "排名"],
-                    title=f"{selected_name} 周邊競品分佈",
-                    color_discrete_map={"我方診所": "#FF4B4B", "競爭對手": "#4169E1"},
-                    size="評論數", # 讓點的大小跟評論數成正比，增加視覺豐富度
-                    size_max=40
-                )
-                # 讓 X 軸範圍稍微寬一點以免貼邊
-                fig.update_layout(xaxis_range=[0, 5.5])
-                st.plotly_chart(fig, use_container_width=True)
+            # --- 1. 排名矩陣熱力圖 (Ranking Matrix) ---
+            st.subheader("📊 排名矩陣 (Heatmap)")
+            
+            # 轉換資料格式為 Pivot Table: Index=診所, Columns=關鍵字, Values=排名
+            pivot_df = df.pivot(index="clinic", columns="keyword", values="rank")
+            
+            # 為了讓 Heatmap 顏色正確，數值需為數字。 '20+' 我們在 raw data 存的是 21
+            # 顏色邏輯：1(綠) -> 10(黃) -> 20+(紅)
+            fig = px.imshow(
+                pivot_df,
+                labels=dict(x="關鍵字", y="診所", color="排名"),
+                x=KEYWORDS,
+                y=list(CLINICS.keys()),
+                text_auto=True,
+                color_continuous_scale="RdYlGn_r", # 紅黃綠 反轉 (排名越小越綠)
+                range_color=[1, 20] # 顏色範圍鎖定在 1~20
+            )
+            fig.update_layout(height=600)
+            st.plotly_chart(fig, use_container_width=True)
 
-            # --- 顯示詳細資料表 ---
-            st.subheader("📋 詳細資料")
-            # 調整欄位順序
-            if not df.empty:
-                display_df = df[["排名", "店名", "星等", "評論數", "身份"]].sort_values("排名")
-                st.dataframe(display_df, use_container_width=True, hide_index=True)
+            # --- 2. 詳細競爭對手分析 ---
+            st.divider()
+            st.subheader("🕵️ 詳細競品分析")
+            
+            selected_clinic = st.selectbox("請選擇要查看的診所：", list(CLINICS.keys()))
+            
+            if selected_clinic:
+                clinic_df = df[df["clinic"] == selected_clinic]
+                
+                # 整理顯示用的表格
+                display_rows = []
+                for _, row in clinic_df.iterrows():
+                    competitors_str = ", ".join(row["top_competitors"])
+                    display_rows.append({
+                        "關鍵字": row["keyword"],
+                        "我方排名": row["rank_display"],
+                        "前三名強敵": competitors_str
+                    })
+                
+                if display_rows:
+                    st.table(pd.DataFrame(display_rows))
+                else:
+                    st.info("該診所尚無分析資料。")
 
-        else:
-            st.warning("查無資料或 API 額度不足。")
+        except Exception as e:
+            st.error(f"執行失敗: {str(e)}")
 
 if __name__ == "__main__":
     main()
